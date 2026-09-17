@@ -30,8 +30,8 @@
 html,
 body {
   margin: 0;
-  width: 360px;
-  height: 316px;
+  width: 180px;
+  height: 100%; /* 高度跟随窗口：面板高度由主进程按订阅结构自适应（见 main.js） */
   overflow: hidden;
   background: transparent;
   font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -42,8 +42,8 @@ body {
 
 #app {
   position: relative;
-  width: 360px;
-  height: 316px;
+  width: 180px;
+  height: 100%;
   background: transparent;
 }
 
@@ -62,8 +62,8 @@ body {
    「图标在窗口内可移位」来同时满足（详见 main.js 的 computeLayout）。
    默认值 = 窗口正中，作为兜底。 */
 #mini {
-  left: var(--mini-x, 160px);
-  top: var(--mini-y, 138px);
+  left: var(--mini-x, 70px);
+  top: var(--mini-y, calc(50% - 20px));
   width: 40px;
   height: 40px;
   border-radius: 9px;
@@ -81,8 +81,8 @@ body {
 #hover {
   left: 0;
   top: 0;
-  width: 360px;
-  height: 316px;
+  width: 180px;
+  height: 100%; /* 跟随窗口高度（主进程按订阅结构自适应） */
   border-radius: 14px;
   background: linear-gradient(160deg, #0d0a16 0%, var(--bg) 55%);
   box-shadow: 0 10px 30px rgba(108, 42, 180, 0.32), inset 0 0 0 1px rgba(168, 85, 247, 0.16);
@@ -183,22 +183,22 @@ body {
 
 .panel-head {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 10px;
-  height: 24px;
+  left: 10px;
+  right: 10px;
+  top: 9px;
+  height: 22px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
 }
 .head-logo {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 .head-product {
   flex: 1;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--light);
   white-space: nowrap;
@@ -207,7 +207,7 @@ body {
 }
 .head-updated {
   flex: none;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--sub);
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
@@ -216,13 +216,13 @@ body {
 /* 计划分组容器 */
 .panel-rows {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 42px;
-  bottom: 12px;
+  left: 10px;
+  right: 10px;
+  top: 38px;
+  bottom: 10px;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 7px;
 }
 
 /* 所有进度条共用的 Canvas 粒子层，浮在进度条之上 */
@@ -287,7 +287,10 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  /* 行与行收得很紧（用户要求压缩 5 小时/周/月之间的距离）：
+     有富余时行也最多撑到 33px（.row 的 max-height），不会被 space-between 拉散 */
+  justify-content: flex-start;
+  gap: 4px;
 }
 
 /* 未订阅 / 未绑席位 / 查询失败的占位行：贴着标题，不撑高 */
@@ -306,12 +309,13 @@ body {
   align-items: center;
   gap: 8px;
   flex: 1;
+  max-height: 33px; /* 行高上限：让「5 小时 / 周 / 月」贴得近，而不是被均分拉开 */
   min-height: 0;
 }
 .row-label {
-  width: 42px;
+  width: 34px;
   flex: none;
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--sub);
 }
 .row-body {
@@ -345,7 +349,7 @@ body {
 /* 百分比紧贴轨道右端（flex:none 让它跟着轨道走，不再被固定宽容器推开） */
 .row-pct {
   flex: none;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--row-accent, var(--main));
   font-variant-numeric: tabular-nums;
@@ -353,7 +357,7 @@ body {
 }
 /* 重置时刻：独占一行、字号拉到 11px、颜色提亮 —— 之前 9px + 0.72 透明度太不显眼 */
 .row-reset {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--sub-bright);
   white-space: nowrap;
   overflow: hidden;
@@ -385,14 +389,14 @@ body {
   position: absolute;
   left: 50%;
   transform: translateX(-50%) translateY(-6px);
-  max-width: 320px;
-  padding: 6px 14px;
+  max-width: calc(100% - 18px);
+  padding: 5px 10px;
   border-radius: 10px;
   background: rgba(22, 14, 40, 0.96);
   border: 1px solid rgba(168, 85, 247, 0.42);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   color: var(--light);
-  font-size: 11px;
+  font-size: 10.5px;
   white-space: nowrap;
   z-index: 9;
   pointer-events: none; /* 提示不该挡住点击 / 拖拽 */
@@ -411,7 +415,7 @@ body {
    图标可能贴在窗口任意一角（见 main.js 的 computeLayout），
    所以提示要朝面板展开的那一侧出现，否则会飘到窗口外面。 */
 #app:not([data-state="HOVER"]) .toast {
-  top: var(--toast-top, 184px);
+  top: var(--toast-top, 173px);
 }
 /* 展开态：提示贴在面板底部 */
 #app[data-state="HOVER"] .toast {
@@ -431,8 +435,8 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  padding: 0 22px;
+  gap: 8px;
+  padding: 0 10px;
   text-align: center;
 }
 .fallback[hidden] {
@@ -440,18 +444,19 @@ body {
 }
 .fallback-text {
   margin: 0;
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.5;
   color: var(--light);
 }
 .fallback-cmd {
   font-family: ui-monospace, Consolas, "Courier New", monospace;
-  font-size: 11px;
+  font-size: 9.5px;
+  word-break: break-all; /* 窄面板放不下整条命令，允许折行 */
   color: var(--bright);
   background: #160e28;
   border: 1px solid rgba(168, 85, 247, 0.32);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 5px 8px;
   cursor: pointer;
   user-select: text;
   -webkit-app-region: no-drag;
@@ -464,12 +469,12 @@ body {
 }
 .fallback-btn {
   font: inherit;
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: #0a0a0f;
   background: var(--main);
   border: none;
   border-radius: 8px;
-  padding: 6px 15px;
+  padding: 5px 13px;
   cursor: pointer;
   -webkit-app-region: no-drag; /* drag 区域内的按钮必须显式 no-drag */
   transition: background 0.2s ease;

@@ -44,11 +44,47 @@ const DEFAULT_INTERVAL_MS = 30000;
 const MIN_INTERVAL_MS = 5000;
 
 /**
- * 窗口固定尺寸。绝不用 setBounds/setSize 动态改尺寸 —— 透明窗口 resize 会撕裂闪屏。
- * 高度按「双计划分组面板」定一次：header 26 + 两组各（标题 + 3 行两段式）+ 分隔。
+ * 窗口宽度固定 = 展开面板的宽度。绝不用 setBounds/setSize 动态改尺寸 ——
+ * 透明窗口 resize 会撕裂闪屏。
+ *
+ * ⚠️ 不要拿 win.getBounds() 当「面板的边界」用：
+ * Windows 会给这个无边框透明窗口外挂一圈**不可见**的调整边框，本机 187.5% 缩放下
+ * 实测请求 360×316、getBounds() 却回 365×321，而且多出来的部分全压在右边和下边
+ * （左上角坐标完全一致）。命中判定因此**不能**用 getBounds()，必须用渲染层实测
+ * 上报的面板矩形（见 panelRect）。
  */
-const WINDOW_WIDTH = 360;
-const WINDOW_HEIGHT = 316;
+const WINDOW_WIDTH = 180;
+
+/**
+ * 窗口高度的**默认值**（首次启动 / 配置缺失时用）。
+ * 实际高度按「有数据的计划数」自适应（见 computePanelHeight / panel-structure）：
+ * 只有一个订阅有数据时面板收得紧凑，两个都有数据时才撑到全高。
+ * CSS 侧高度全部写 100% 跟随窗口，因此改这里不会造成布局错位。
+ */
+const WINDOW_HEIGHT = 294;
+
+/**
+ * 面板结构高度常量 —— 与 style.css 里的值一一对应，改 CSS 必须同步改这里：
+ *   .panel-rows top=38 bottom=10 gap=7
+ *   .plan-head height=15
+ *   .row max-height=33、.plan-rows gap=4（每个有数据的计划固定 3 行）
+ *   .plan-empty（标题 + 一行占位文字）≈ 36
+ */
+const PANEL_TOP_PAD = 38;
+const PANEL_BOTTOM_PAD = 10;
+const GROUP_GAP = 7;
+const PLAN_HEAD_H = 15;
+const ROW_H = 33;
+const ROW_GAP = 4;
+const ROWS_PER_PLAN = 3;
+const EMPTY_PLAN_H = 36;
+
+/** 自适应高度的钳制范围（EMPTY 兜底态也要够 fallback 浮层立足）。 */
+const MIN_WINDOW_H = 170;
+const MAX_WINDOW_H = 420;
+
+/** 相邻两次目标高度差 ≤ 该值就不动窗口（防抖：避免 1~2px 的往返抖动）。 */
+const PANEL_H_TOLERANCE = 4;
 
 /** MINI 态图标边长（须与 style.css 中 #mini 的尺寸保持一致）。 */
 const MINI_SIZE = 40;
@@ -129,6 +165,13 @@ let showWidget = true; // 桌面挂件是否可见（托盘常驻）
 let quitting = false;
 
 /**
+ * 当前生效的窗口高度（面板高度自适应订阅状态，见 panel-structure IPC）。
+ * 启动时优先用上次保存的 panelH，避免「先按 294 创建、首轮快照后又缩一次」的闪动。
+ */
+let windowH = WINDOW_HEIGHT;
+let pendingPanelH = null; // 展开 / 拖拽中算出的目标高度，收起后再应用（避免动画中 resize）
+
+/**
  * 「渲染层已加载完但还没拿到过首份快照」的标志。
  *
  * 为什么需要它（本地实测到的时序竞争）：主进程的启动轮询与渲染层的 listener 注册
@@ -156,6 +199,29 @@ let hoverEntered = false; // 迟滞环的当前状态
 let moveGuardUntil = 0; // 拖拽保护截止时间戳：窗口刚移动过时不切换穿透
 
 /**
+ * 展开态的面板矩形（由渲染层实测上报，CSS px、相对视口）。
+ *
+ * 为什么不能直接用 win.getBounds() —— 这是实测定位到的病灶：
+ *
+ * 本机屏幕缩放 187.5%，请求 360×316 的窗口，getBounds() 返回的却是 **365×321**，
+ * 而 CSS 视口只有 364×320、真正的面板（#hover）更是只有 360×316。也就是说
+ * Windows 给这个无边框透明窗口加了一圈约 5 DIP 的**不可见调整边框**，
+ * 且多出来的部分**全部压在右边和下边**（左上角坐标与请求值一致）。
+ *
+ * 于是「窗口矩形」比「肉眼看到的面板」右多 5px、下多 5px，而展开态的判定
+ * 原本就是拿整个窗口矩形算的 —— 结果：
+ *   鼠标往左 / 往上离开面板 → 判定边界与面板边界重合 → 立刻收起 ✅
+ *   鼠标往右 / 往下离开面板 → 面板已经出去了、判定还认为「在里面」，要多走 5px ❌
+ *
+ * 用户能感知到的现象正是「只有往左、往上才收得起来，往右、往下都不行」，
+ * 而且**与挂件摆在屏幕哪个位置无关**（因为边框是恒定的）。
+ *
+ * 解法：让渲染层把 #hover 的实测矩形报上来，判定边界永远等于视觉边界。
+ * 这样换任何 DPI 缩放、换任何 Windows 版本都成立。
+ */
+let panelRect = null;
+
+/**
  * 小图标在窗口内的偏移（窗口坐标，单位 px）。默认窗口正中，拖拽后由 computeLayout 重算。
  *
  * 这个自由度是「图标能贴屏幕边」与「面板不超出屏幕」同时成立的关键，
@@ -177,13 +243,20 @@ let dragState = null;
  */
 function cursorHitTest() {
   const pt = screen.getCursorScreenPoint();
-  const b = win.getBounds();
+  // 原点用**内容区**而不是窗口外框：面板矩形是渲染层按视口坐标报上来的，
+  // 而视口左上角 = 内容区左上角。两者同坐标系，判定才不会整体平移。
+  // （实测这台上两者相同，但内容区才是语义正确的那个。）
+  const cb = win.getContentBounds();
+  const b = cb.width > 0 && cb.height > 0 ? cb : win.getBounds();
   const x = pt.x - b.x;
   const y = pt.y - b.y;
 
-  // 展开态：面板铺满整个窗口，窗口内即命中
+  // 展开态：命中区就是**面板本身**（渲染层实测矩形），不是窗口外框。
+  // 拿不到上报值时退回窗口矩形 —— 只是首帧兜底，正常展开后立刻就有值。
   if (uiExpanded) {
-    const inside = x >= 0 && y >= 0 && x < b.width && y < b.height;
+    const r = panelRect || { left: 0, top: 0, width: b.width, height: b.height };
+    const inside =
+      x >= r.left && y >= r.top && x < r.left + r.width && y < r.top + r.height;
     return { interactive: inside, near: inside };
   }
 
@@ -281,9 +354,43 @@ function computeLayout(ix, iy) {
     iconY: iy,
     areas: screen.getAllDisplays().map((d) => d.workArea),
     winW: WINDOW_WIDTH,
-    winH: WINDOW_HEIGHT,
+    winH: windowH,
     miniSize: MINI_SIZE
   });
+}
+
+/**
+ * 按订阅结构算出面板需要的窗口高度。
+ *
+ * 为什么由主进程按公式算、而不是渲染层量 DOM：窗口缩小时 flex 行会被压缩，
+ * 量到的是「压缩后」的高度 —— 之后订阅变多时永远算不出「需要变大」。
+ * 公式基于行高上限（ROW_H），与实际布局一致，且结构变化只由快照驱动、极低频。
+ *
+ * @param {number} okCount 有数据（state === 'ok'）的计划数
+ * @param {number} otherCount 未订阅 / 无数据 / 失败的计划数
+ * @returns {number} 窗口高度（px）
+ */
+function computePanelHeight(okCount, otherCount) {
+  const okPlanH = PLAN_HEAD_H + ROWS_PER_PLAN * ROW_H + (ROWS_PER_PLAN - 1) * ROW_GAP;
+  const groups = okCount * okPlanH + otherCount * EMPTY_PLAN_H;
+  const gaps = Math.max(0, okCount + otherCount - 1) * GROUP_GAP;
+  return PANEL_TOP_PAD + groups + gaps + PANEL_BOTTOM_PAD;
+}
+
+/**
+ * 把窗口高度调到目标值（仅订阅结构变化时调用，极低频）。
+ *
+ * 位置不动、只改高度；改完按「图标屏幕位置不变」重解算窗口落位与在窗偏移 ——
+ * 这样 MINI 小图标纹丝不动，只有面板的底边伸缩。
+ * @param {number} h
+ */
+function applyWindowHeight(h) {
+  if (!win || win.isDestroyed()) return;
+  windowH = h;
+  const b = win.getBounds();
+  win.setBounds({ x: b.x, y: b.y, width: WINDOW_WIDTH, height: h });
+  applyLayoutFromIconPos();
+  writeConfig({ panelH: h }); // 下次启动直接按这个高度创建，避免启动后再缩一次的闪动
 }
 
 /**
@@ -378,6 +485,13 @@ function endDrag() {
 
   // 强制下一拍重新计算穿透状态（mouseup 若丢在窗口外，不至于让窗口一直"吃"鼠标）
   lastInteractive = null;
+
+  // 拖拽中挂起的高度调整，现在安全了
+  if (pendingPanelH !== null && !uiExpanded) {
+    const h = pendingPanelH;
+    pendingPanelH = null;
+    applyWindowHeight(h);
+  }
 }
 
 /** 拖拽期间：把窗口搬到光标底下，并做「光标长时间静止 = 已松手」的看门狗。 */
@@ -408,7 +522,7 @@ function followCursorDuringDrag() {
   // 面板钉在光标下：只要求窗口本身完整留在工作区内
   const area = workAreaNear(pt.x, pt.y);
   const wx = clamp(pt.x - dragState.grabX, area.x, area.x + area.width - WINDOW_WIDTH);
-  const wy = clamp(pt.y - dragState.grabY, area.y, area.y + area.height - WINDOW_HEIGHT);
+  const wy = clamp(pt.y - dragState.grabY, area.y, area.y + area.height - windowH);
   win.setPosition(Math.round(wx), Math.round(wy));
 }
 
@@ -518,6 +632,17 @@ function loadMiniPlan() {
 function loadShowWidget() {
   const v = readConfig().showWidget;
   return v === undefined ? true : v !== false;
+}
+
+/**
+ * 读取上次保存的面板高度。
+ * 结构没变时直接按它创建窗口，避免「先按默认高度创建、首轮快照后又缩一次」的闪动。
+ * @returns {number}
+ */
+function loadPanelH() {
+  const v = Number(readConfig().panelH);
+  if (Number.isFinite(v) && v >= MIN_WINDOW_H && v <= MAX_WINDOW_H) return Math.round(v);
+  return WINDOW_HEIGHT;
 }
 
 // ---------------------------------------------------------------------------
@@ -1019,8 +1144,8 @@ function createWindow() {
   miniOffset = layout.offset;
 
   win = new BrowserWindow({
-    width: WINDOW_WIDTH, // 固定展开态尺寸，绝不用 setBounds/setSize 动态改尺寸
-    height: WINDOW_HEIGHT, // （透明窗口 resize 会撕裂闪屏）
+    width: WINDOW_WIDTH,
+    height: windowH, // 面板高度自适应订阅状态（见 panel-structure），CSS 侧用 100% 跟随
     x: layout.win.x,
     y: layout.win.y,
     frame: false,
@@ -1102,6 +1227,53 @@ ipcMain.on('ui-expanded', (_e, expanded) => {
       win.setIgnoreMouseEvents(!hit.interactive, { forward: true });
     }
   }
+  // 收起后应用挂起中的高度调整（展开时不 resize，避免动画中间帧被撕裂）
+  if (!uiExpanded && pendingPanelH !== null) {
+    const h = pendingPanelH;
+    pendingPanelH = null;
+    applyWindowHeight(h);
+  }
+});
+
+/**
+ * 渲染层上报订阅结构（有数据 / 无数据的计划数）。
+ * 主进程据此算出面板需要的窗口高度 —— 只有一个订阅有数据时收得紧凑，
+ * 底部不再留一大块空白（用户截图反馈的问题）。
+ * 展开 / 拖拽中先挂起，收起后再应用（见 ui-expanded handler）。
+ */
+ipcMain.on('panel-structure', (_e, s) => {
+  const okCount = Math.max(0, Math.min(8, Math.round(Number(s && s.okCount)) || 0));
+  const otherCount = Math.max(0, Math.min(8, Math.round(Number(s && s.otherCount)) || 0));
+  const desired = clamp(computePanelHeight(okCount, otherCount), MIN_WINDOW_H, MAX_WINDOW_H);
+  if (!win || win.isDestroyed()) return;
+  if (Math.abs(desired - windowH) <= PANEL_H_TOLERANCE) return;
+  if (uiExpanded || dragState) {
+    pendingPanelH = desired;
+    return;
+  }
+  applyWindowHeight(desired);
+});
+
+/**
+ * 渲染层上报「面板的真实矩形」（#hover 的 offset* 布局尺寸，CSS px、相对视口）。
+ * 展开态的命中判定以它为准 —— 原因见 panelRect 声明处的长注释：
+ * win.getBounds() 会被 Windows 的不可见调整边框撑大，且多出来的全在右、下，
+ * 拿它判定就会出现「往左上能收起、往右下收不起」的方向性 bug。
+ */
+ipcMain.on('panel-rect', (_e, rect) => {
+  if (
+    rect &&
+    Number.isFinite(rect.left) &&
+    Number.isFinite(rect.top) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height) &&
+    rect.width > 0 &&
+    rect.height > 0
+  ) {
+    panelRect = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  } else {
+    panelRect = null; // 无效值 → 展开态退回窗口矩形兜底
+  }
 });
 
 ipcMain.on('refresh-now', () => {
@@ -1172,6 +1344,7 @@ if (!gotLock) {
     intervalMs = loadIntervalMs();
     miniPlan = loadMiniPlan();
     showWidget = loadShowWidget();
+    windowH = loadPanelH();
 
     createWindow();
     createTray();

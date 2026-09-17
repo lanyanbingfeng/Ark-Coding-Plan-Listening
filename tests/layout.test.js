@@ -34,8 +34,8 @@ function group(title) {
   console.log(`\n${title}`);
 }
 
-const WIN_W = 360;
-const WIN_H = 316;
+const WIN_W = 180;
+const WIN_H = 294;
 const MINI = 40;
 
 /** 单屏 1920×1080，工作区与屏幕等大（假设无任务栏占位）。 */

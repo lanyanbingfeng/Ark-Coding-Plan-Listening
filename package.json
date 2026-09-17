@@ -1,6 +1,6 @@
 {
   "name": "volc-quota-monitor",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "火山方舟套餐额度桌面挂件（Agent Plan / Coding Plan，剩余口径 + 系统托盘）",
   "main": "main.js",
   "author": "Software Development Team",

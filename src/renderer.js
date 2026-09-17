@@ -201,6 +201,21 @@ function syncPlanDom(plans) {
   }
 
   resizeCanvas();
+  reportPanelStructure();
+}
+
+/**
+ * 把订阅结构（有数据 / 无数据的计划数）报给主进程，供其自适应窗口高度：
+ * 只有 Coding Plan 有数据时面板收得紧凑，不再在底部留一大块空白（用户截图反馈）。
+ * 只在结构签名变化（本函数被调用）时上报，极低频。
+ */
+function reportPanelStructure() {
+  let okCount = 0;
+  for (const el of panelRowsEl.querySelectorAll('.plan')) {
+    if (el.dataset.state === 'ok') okCount++;
+  }
+  const total = panelRowsEl.querySelectorAll('.plan').length;
+  window.monitor.setPanelStructure({ okCount, otherCount: total - okCount });
 }
 
 /** 清空行引用 / 动画状态 / 几何缓存（DOM 重建时调用）。 */
@@ -447,14 +462,36 @@ function showToast(text) {
 // 交互：展开 / 收回
 // ---------------------------------------------------------------------------
 
+/**
+ * 把面板的真实布局尺寸报给主进程，供展开态的命中判定使用。
+ *
+ * 为什么不直接让主进程用窗口尺寸：Windows 会给无边框透明窗口加一圈不可见的
+ * 调整边框（本机 187.5% 缩放实测：请求 360×316，win.getBounds() 却是 365×321，
+ * 且多出来的部分全在右、下）。拿外框判定，鼠标往右下移出面板时要多走 5px
+ * 才算「已离开」—— 表现就是面板收不起来。用 #hover 的 offset* 实测值判定，
+ * 判定边界永远等于肉眼看到的边界（offset* 不受 transform 过渡影响，随时可测）。
+ */
+function reportPanelRect() {
+  window.monitor.setPanelRect({
+    left: hoverEl.offsetLeft,
+    top: hoverEl.offsetTop,
+    width: hoverEl.offsetWidth,
+    height: hoverEl.offsetHeight
+  });
+}
+
 function expand() {
   if (expanded) return;
   expanded = true;
   // 先切姿态再测量；resizeCanvas 内部用布局尺寸(offset*)，不受 scale 过渡影响。
   refreshDataState();
   resizeCanvas();
+  reportPanelRect(); // 展开态的命中区以面板实测矩形为准（见函数注释）
   // 双 rAF 兜底：等一帧完成样式重算后，再校正一次几何
-  requestAnimationFrame(() => requestAnimationFrame(resizeCanvas));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    resizeCanvas();
+    reportPanelRect();
+  }));
   window.monitor.setExpanded(true); // 告知主进程：此后整个窗口都算命中区
   window.monitor.refreshNow(); // 展开瞬间补一次刷新，保证看到最新值
 }
@@ -529,7 +566,7 @@ function applyMiniOffset(offset) {
   appEl.style.setProperty('--mini-x', `${x}px`);
   appEl.style.setProperty('--mini-y', `${y}px`);
 
-  const winH = document.body.clientHeight || 316;
+  const winH = document.body.clientHeight || 294;
   const below = y < winH / 2;
   appEl.style.setProperty(
     '--toast-top',

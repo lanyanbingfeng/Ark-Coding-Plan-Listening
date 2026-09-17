@@ -55,6 +55,30 @@ contextBridge.exposeInMainWorld('monitor', {
     ipcRenderer.send('ui-expanded', !!expanded);
   },
 
+  /**
+   * 上报「面板的真实矩形」（#hover 的布局尺寸，CSS px、相对视口）。
+   *
+   * 主进程展开态的命中判定以它为准，而不是窗口外框 —— Windows 会给无边框
+   * 透明窗口加一圈不可见调整边框（本机 187.5% 缩放实测外框比面板大 5px，
+   * 且全在右、下），拿外框判定就会出现「往左上能收起、往右下收不起」。
+   *
+   * @param {{left: number, top: number, width: number, height: number}} rect
+   */
+  setPanelRect(rect) {
+    ipcRenderer.send('panel-rect', rect);
+  },
+
+  /**
+   * 上报订阅结构（有数据 / 无数据的计划数）。
+   * 主进程据此算出面板需要的窗口高度：只有一个订阅有数据时面板收得紧凑，
+   * 不再在底部留一大块空白。极低频（订阅状态变化才触发）。
+   *
+   * @param {{okCount: number, otherCount: number}} s
+   */
+  setPanelStructure(s) {
+    ipcRenderer.send('panel-structure', s);
+  },
+
   /** 请求立即刷新一次额度数据。 */
   refreshNow() {
     ipcRenderer.send('refresh-now');
