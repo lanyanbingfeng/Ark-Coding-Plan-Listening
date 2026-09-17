@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;" />
+  <title>火山方舟额度监测</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- 品牌标记定义（2×2 紫色方块拼合的方舟标记），供下方 <use> 复用 -->
+  <svg class="sprite" width="0" height="0" aria-hidden="true">
+    <defs>
+      <symbol id="ark-mark" viewBox="0 0 48 48">
+        <rect x="5"  y="5"  width="17" height="17" rx="4" fill="#C084FC" />
+        <rect x="26" y="5"  width="17" height="17" rx="4" fill="#A855F7" />
+        <rect x="5"  y="26" width="17" height="17" rx="4" fill="#A855F7" />
+        <rect x="26" y="26" width="17" height="17" rx="4" fill="#7C3AED" />
+      </symbol>
+    </defs>
+  </svg>
+
+  <div id="app" data-state="BOOT">
+    <!-- ==================== MINI 态：40×40 小图标 ==================== -->
+    <section id="mini" data-percent="0" aria-label="火山方舟额度（缩略）">
+      <svg class="mini-ring" viewBox="0 0 40 40" aria-hidden="true">
+        <circle class="ring-track"    cx="20" cy="20" r="17" />
+        <circle class="ring-progress" cx="20" cy="20" r="17" />
+      </svg>
+      <svg class="mini-logo" viewBox="0 0 48 48" aria-hidden="true">
+        <use href="#ark-mark" />
+      </svg>
+      <span class="alert-dot" title="查询异常" hidden></span>
+    </section>
+
+    <!-- ==================== HOVER 态：双计划分组面板 ==================== -->
+    <section id="hover" aria-label="火山方舟额度（详情）">
+      <header class="panel-head">
+        <svg class="head-logo" viewBox="0 0 48 48" aria-hidden="true">
+          <use href="#ark-mark" />
+        </svg>
+        <span class="head-product" id="account-name">火山方舟</span>
+        <span class="head-updated" id="updated-at">—</span>
+      </header>
+
+      <!-- 计划分组（Agent Plan / Coding Plan …）由 renderer 依据快照动态生成 -->
+      <div class="panel-rows" id="panel-rows">
+        <!-- 所有进度条共用一个 Canvas 粒子层 -->
+        <canvas id="particles" aria-hidden="true"></canvas>
+      </div>
+
+      <!-- 兜底态浮层（NO_CLI / NO_AUTH / EMPTY / ERROR） -->
+      <div class="fallback" id="fallback" hidden>
+        <p class="fallback-text" id="fallback-text"></p>
+        <code class="fallback-cmd" id="fallback-cmd" hidden></code>
+        <button class="fallback-btn" id="fallback-btn" hidden></button>
+      </div>
+    </section>
+
+    <!-- 渐入提示：切换订阅等瞬态反馈，MINI / HOVER 两态共用 -->
+    <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <!-- parse.js 提供纯函数（分级、时间解析），主进程与渲染层共用同一份实现 -->
+  <script src="parse.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

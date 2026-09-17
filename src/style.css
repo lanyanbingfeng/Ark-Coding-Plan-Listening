@@ -1,0 +1,482 @@
+/* =========================================================================
+   style.css —— 火山方舟额度监测 · 紫黑主题
+   两态（MINI / HOVER）由 #app[data-state] 驱动，全部为 CSS 过渡，
+   窗口尺寸固定不变（避免透明窗口 resize 撕裂）。
+   ========================================================================= */
+
+:root {
+  --bg: #0a0a0f;          /* 背景（近黑，非纯黑） */
+  --main: #a855f7;        /* 主紫 */
+  --bright: #c084fc;      /* 亮紫（粒子高光） */
+  --light: #e9d5ff;       /* 浅紫（正文） */
+  --sub: #a78bfa;         /* 次紫（标签） */
+  --sub-bright: #c4b5fd;  /* 提亮次紫（重置时刻，要看得清） */
+  --track: #1c1230;       /* 深紫（轨道） */
+  --danger: #f472b6;      /* 警示色（剩余告警） */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 内联 SVG 符号定义容器（避免使用内联 style 属性，符合 CSP） */
+.sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+html,
+body {
+  margin: 0;
+  width: 360px;
+  height: 316px;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+#app {
+  position: relative;
+  width: 360px;
+  height: 316px;
+  background: transparent;
+}
+
+/* ---------------------------- 两态容器 ---------------------------- */
+
+#mini,
+#hover {
+  position: absolute;
+  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.33, 1, 0.68, 1);
+  will-change: opacity, transform;
+}
+
+/* MINI：40×40 小图标。
+   位置由 --mini-x / --mini-y 驱动（主进程算好之后下发）—— 图标不再固定居中，
+   因为「图标能贴屏幕边缘」和「面板不能超出屏幕」这两个诉求，只能靠
+   「图标在窗口内可移位」来同时满足（详见 main.js 的 computeLayout）。
+   默认值 = 窗口正中，作为兜底。 */
+#mini {
+  left: var(--mini-x, 160px);
+  top: var(--mini-y, 138px);
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 3px 12px rgba(108, 42, 180, 0.38), inset 0 0 0 1px rgba(168, 85, 247, 0.14);
+  cursor: pointer;
+  /* 刻意不加 left/top 过渡：窗口位置与 CSS 位置必须同帧生效，
+     否则拖拽结束时重算展开方向会看到图标"飘"一下。 */
+}
+
+/* HOVER：面板铺满窗口。
+   注意：这里**不使用** -webkit-app-region: drag —— 系统拖拽区会吞掉鼠标事件
+   （连 :hover 都失效），而且它的拖动不受我们控制，没法按屏幕边界钳制。
+   面板与图标一样走「renderer 判定手势 + 主进程跟随光标」的自实现拖拽。 */
+#hover {
+  left: 0;
+  top: 0;
+  width: 360px;
+  height: 316px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, #0d0a16 0%, var(--bg) 55%);
+  box-shadow: 0 10px 30px rgba(108, 42, 180, 0.32), inset 0 0 0 1px rgba(168, 85, 247, 0.16);
+}
+
+/* 状态驱动：HOVER 时展示面板，其余状态展示 MINI */
+#app[data-state="HOVER"] #mini {
+  opacity: 0;
+  transform: scale(0.9);
+  pointer-events: none;
+}
+#app[data-state="HOVER"] #hover {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+#app:not([data-state="HOVER"]) #mini {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+#app:not([data-state="HOVER"]) #hover {
+  opacity: 0;
+  transform: scale(1.03);
+  pointer-events: none;
+}
+
+/* ---------------------------- MINI 剩余圆环 ---------------------------- */
+
+/* 圆环半径 17 → 周长 2πr ≈ 106.81，由 renderer 设置 dashoffset */
+.mini-ring {
+  position: absolute;
+  inset: 0;
+  width: 40px;
+  height: 40px;
+  transform: rotate(-90deg); /* 从 12 点方向起弧 */
+}
+.ring-track {
+  fill: none;
+  stroke: var(--track);
+  stroke-width: 2.5;
+}
+.ring-progress {
+  fill: none;
+  stroke: var(--main);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 106.81;
+  stroke-dashoffset: 106.81;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.33, 1, 0.68, 1), stroke 0.4s ease;
+}
+
+/* MINI 中央 logo */
+.mini-logo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 19px;
+  height: 19px;
+  margin: -9.5px 0 0 -9.5px;
+  transition: filter 0.3s ease, opacity 0.3s ease;
+}
+
+/* 剩余量分级着色（MINI 圆环，按圆环盯的那条周期的剩余） */
+#mini.lv-normal .ring-progress { stroke: var(--main); }
+#mini.lv-warn   .ring-progress { stroke: var(--bright); }
+#mini.lv-danger .ring-progress { stroke: var(--danger); }
+
+/* 右上角异常小点 */
+.alert-dot {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 6px rgba(244, 114, 182, 0.9);
+}
+
+/* NO_AUTH：紫色呼吸闪烁 */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0); }
+  50%      { box-shadow: 0 0 14px 3px rgba(168, 85, 247, 0.55); }
+}
+#app[data-status="NO_AUTH"] #mini {
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+/* NO_CLI：logo 变暗灰（MINI 与 HOVER 都生效） */
+#app[data-status="NO_CLI"] .mini-logo,
+#app[data-status="NO_CLI"] .head-logo {
+  filter: grayscale(1) brightness(0.6);
+  opacity: 0.55;
+}
+
+/* ---------------------------- HOVER 面板 ---------------------------- */
+
+.panel-head {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 10px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.head-logo {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.head-product {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.head-updated {
+  flex: none;
+  font-size: 10px;
+  color: var(--sub);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 计划分组容器 */
+.panel-rows {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 42px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* 所有进度条共用的 Canvas 粒子层，浮在进度条之上 */
+#particles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ---------------------------- 计划分组 ---------------------------- */
+
+/* 计划分组。
+   默认按内容收缩（flex:none）—— 未订阅 / 查询失败的分组只有「标题 + 一行状态」，
+   若让它跟着均分高度，就会出现标题下一大块空白、状态文字下面又一大块空白。
+   只有真的有数据的计划才撑满剩余空间（`[data-state="ok"]`），把高度都留给进度条。 */
+.plan {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plan[data-state="ok"] {
+  flex: 1;
+}
+
+.plan-head {
+  flex: none;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.plan-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--light);
+  opacity: 0.92;
+}
+.plan-badge {
+  font-size: 9px;
+  color: var(--sub);
+  background: rgba(168, 85, 247, 0.14);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 14px;
+  flex: none;
+}
+/* 未订阅 / 未绑定席位等状态文案 */
+.plan-state {
+  font-size: 9px;
+  color: var(--danger);
+  opacity: 0.9;
+  margin-left: auto;
+}
+
+.plan-rows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* 未订阅 / 未绑席位 / 查询失败的占位行：贴着标题，不撑高 */
+.plan-empty {
+  padding: 3px 0 1px;
+  font-size: 11px;
+  color: var(--sub);
+  opacity: 0.68;
+}
+
+/* 每行两段式：左边周期名，右边「轨道 + 百分比」一行、「重置时刻」一行。
+   为什么改成这样：早先是「轨道 + 固定 92px 宽的双行 meta」，那个固定宽度会在
+   数字前面留一大块空白（数字看着离进度条很远），而重置时刻被压在 9px 小字里几乎看不见。 */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.row-label {
+  width: 42px;
+  flex: none;
+  font-size: 11px;
+  color: var(--sub);
+}
+.row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.row-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.row-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--track);
+  overflow: hidden;
+}
+.row-fill {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.45), var(--row-accent, var(--main)));
+  transition: width 0.6s cubic-bezier(0.33, 1, 0.68, 1), background 0.4s ease;
+}
+/* 百分比紧贴轨道右端（flex:none 让它跟着轨道走，不再被固定宽容器推开） */
+.row-pct {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--row-accent, var(--main));
+  font-variant-numeric: tabular-nums;
+  transition: color 0.4s ease;
+}
+/* 重置时刻：独占一行、字号拉到 11px、颜色提亮 —— 之前 9px + 0.72 透明度太不显眼 */
+.row-reset {
+  font-size: 11px;
+  color: var(--sub-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 每条独立分级（不共享颜色）—— 按「剩余容量」判定，剩余越少越告警 */
+.row.lv-normal { --row-accent: var(--main); }
+.row.lv-warn   { --row-accent: var(--bright); }
+.row.lv-danger { --row-accent: var(--danger); }
+
+/* LOADING：进度条走位循环动画 */
+@keyframes sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+#app.loading .row-track::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, rgba(192, 132, 252, 0.6), transparent);
+  animation: sweep 1.2s linear infinite;
+}
+
+/* ---------------------------- 渐入提示 ---------------------------- */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) translateY(-6px);
+  max-width: 320px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(22, 14, 40, 0.96);
+  border: 1px solid rgba(168, 85, 247, 0.42);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  color: var(--light);
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 9;
+  pointer-events: none; /* 提示不该挡住点击 / 拖拽 */
+  opacity: 0;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.toast[hidden] {
+  display: none;
+}
+/* 收起态：提示浮在小图标旁边。
+   具体位置由 renderer 按「图标在窗口内的位置」算好写进 --toast-top ——
+   图标可能贴在窗口任意一角（见 main.js 的 computeLayout），
+   所以提示要朝面板展开的那一侧出现，否则会飘到窗口外面。 */
+#app:not([data-state="HOVER"]) .toast {
+  top: var(--toast-top, 184px);
+}
+/* 展开态：提示贴在面板底部 */
+#app[data-state="HOVER"] .toast {
+  top: auto;
+  bottom: 9px;
+}
+
+/* ---------------------------- 兜底浮层 ---------------------------- */
+
+.fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: 14px;
+  background: rgba(10, 10, 15, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 22px;
+  text-align: center;
+}
+.fallback[hidden] {
+  display: none;
+}
+.fallback-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--light);
+}
+.fallback-cmd {
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 11px;
+  color: var(--bright);
+  background: #160e28;
+  border: 1px solid rgba(168, 85, 247, 0.32);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: text;
+  -webkit-app-region: no-drag;
+}
+.fallback-cmd:hover {
+  border-color: var(--bright);
+}
+.fallback-cmd[hidden] {
+  display: none;
+}
+.fallback-btn {
+  font: inherit;
+  font-size: 11.5px;
+  color: #0a0a0f;
+  background: var(--main);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 15px;
+  cursor: pointer;
+  -webkit-app-region: no-drag; /* drag 区域内的按钮必须显式 no-drag */
+  transition: background 0.2s ease;
+}
+.fallback-btn:hover {
+  background: var(--bright);
+}
+.fallback-btn[hidden] {
+  display: none;
+}

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 48 48"
+     role="img" aria-label="火山方舟额度监测 logo">
+  <title>火山方舟额度监测 · 方舟标记</title>
+  <desc>2×2 紫色方块拼合的方舟标记</desc>
+  <rect x="5"  y="5"  width="17" height="17" rx="4" fill="#C084FC" />
+  <rect x="26" y="5"  width="17" height="17" rx="4" fill="#A855F7" />
+  <rect x="5"  y="26" width="17" height="17" rx="4" fill="#A855F7" />
+  <rect x="26" y="26" width="17" height="17" rx="4" fill="#7C3AED" />
+</svg>
